@@ -2,7 +2,6 @@
 name = "tokio-yamux"
 version = "0.3.18"
 license = "MIT"
-repository = "https://github.com/nervosnetwork/tentacle"
 description = "Rust implementation of Yamux"
 authors = [
     "Linfeng Qian <thewawar@gmail.com>",
@@ -39,7 +38,7 @@ tokio = { version = "1.0.0", features = [
 ] }
 
 [features]
-default = ["tokio-timer"]
+default = ["generic-timer"]
 # use tokio timer
 tokio-timer = ["tokio/time"]
 # generic timer, this means that yamux can run under any runtime
