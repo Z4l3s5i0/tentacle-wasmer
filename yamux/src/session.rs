@@ -158,7 +158,7 @@ where
 
             #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
             let mut interval = interval(config.keepalive_interval);
-            #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
+            #[cfg(all(target_family = "wasm", target_os = "unknown"))]
             interval.mock_instant(time_mock.clone());
 
             Some(interval)
