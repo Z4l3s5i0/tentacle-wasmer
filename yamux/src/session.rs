@@ -1,6 +1,6 @@
 //! The session, can open and manage substreams
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix"))]
 use std::time::Instant;
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque, hash_map::Entry},
@@ -10,11 +10,14 @@ use std::{
     time::Duration,
 };
 
-#[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
-use timer::Instant;
-/// wasm-unknown-unkown brower doesn't support time get, must use browser timer instead
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 use web_time::Instant;
+
+#[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix")), feature = "wasm-mock"))]
+use wasm_mock::Instant;
+
+#[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix")), not(feature = "wasm-mock")))]
+use std::time::Instant;
 
 use futures::{
     Sink, Stream,
@@ -108,7 +111,7 @@ pub struct Session<T> {
     keepalive: Option<Interval>,
     /// wasi use time mock to recording time changes
     /// yamux's timeout statistics are session independent
-    #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
+    #[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix")), feature = "wasm-mock"))]
     time_mock: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
@@ -150,15 +153,15 @@ where
             raw_stream,
             FrameCodec::default().max_frame_size(config.max_stream_window_size),
         );
-        #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
+        #[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix")), feature = "wasm-mock"))]
         let time_mock = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let keepalive = if config.enable_keepalive {
-            #[cfg(not(all(target_family = "wasm", not(target_os = "unknown"))))]
+            #[cfg(not(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix")), feature = "wasm-mock")))]
             let interval = interval(config.keepalive_interval);
 
-            #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
+            #[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix")), feature = "wasm-mock"))]
             let mut interval = interval(config.keepalive_interval);
-            #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
+            #[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix")), feature = "wasm-mock"))]
             interval.mock_instant(time_mock.clone());
 
             Some(interval)
@@ -185,7 +188,7 @@ where
             control_sender,
             control_receiver,
             keepalive,
-            #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
+            #[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix")), feature = "wasm-mock"))]
             time_mock,
         }
     }
@@ -226,12 +229,12 @@ where
         self.remote_go_away && self.local_go_away || self.eof
     }
 
-    #[cfg(not(all(target_family = "wasm", not(target_os = "unknown"))))]
+    #[cfg(not(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix")), feature = "wasm-mock")))]
     fn now(&self) -> Instant {
         Instant::now()
     }
 
-    #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
+    #[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix")), feature = "wasm-mock"))]
     fn now(&self) -> Instant {
         Instant::from_u64(self.time_mock.load(std::sync::atomic::Ordering::Acquire) as u64)
     }
@@ -747,6 +750,13 @@ mod timer {
             fn new(period: Duration) -> Self {
                 Self(interval_at(Instant::now() + period, period))
             }
+
+            #[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix"))))]
+            pub fn mock_instant(
+                &mut self,
+                _mock_instant: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+            ) {
+            }
         }
 
         impl Stream for Interval {
@@ -769,8 +779,9 @@ mod timer {
         }
     }
 
-    #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
-    pub use wasm_mock::Instant;
+#[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix")), feature = "wasm-mock"))]
+#[allow(unused_imports)]
+pub use wasm_mock::Instant;
 
     #[cfg(feature = "generic-timer")]
     mod generic_time {
@@ -785,7 +796,7 @@ mod timer {
         pub struct Interval {
             delay: Delay,
             period: Duration,
-            #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
+            #[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix"))))]
             mock_instant: std::sync::Arc<std::sync::atomic::AtomicUsize>,
         }
 
@@ -794,12 +805,12 @@ mod timer {
                 Self {
                     delay: Delay::new(period),
                     period,
-                    #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
+                    #[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix"))))]
                     mock_instant: Default::default(),
                 }
             }
 
-            #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
+            #[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix"))))]
             pub fn mock_instant(
                 &mut self,
                 mock_instant: std::sync::Arc<std::sync::atomic::AtomicUsize>,
@@ -816,7 +827,7 @@ mod timer {
                     Poll::Ready(_) => {
                         let dur = self.period;
                         self.delay.reset(dur);
-                        #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
+                        #[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix"))))]
                         self.mock_instant.fetch_add(
                             dur.as_millis() as usize,
                             std::sync::atomic::Ordering::AcqRel,
@@ -835,7 +846,7 @@ mod timer {
         }
     }
 
-    #[cfg(all(target_family = "wasm", not(target_os = "unknown")))]
+    #[cfg(all(target_family = "wasm", not(any(target_os = "unknown", target_os = "wasix"))))]
     #[allow(dead_code)]
     mod wasm_mock {
         use std::cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd};

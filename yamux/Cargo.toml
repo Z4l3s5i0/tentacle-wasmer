@@ -10,6 +10,9 @@ authors = [
 edition = "2024"
 rust-version = "1.85.0"
 
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_os, values("wasix"))'] }
+
 [dependencies]
 bytes = "1.0.0"
 futures = { version = "0.3.0" }
@@ -46,6 +49,7 @@ tokio-timer = ["tokio/time"]
 generic-timer = ["futures-timer"]
 # use futures-timer's wasm feature
 wasm = ["generic-timer", "futures-timer/wasm-bindgen"]
+wasm-mock = []
 metrics = ["dep:metrics"]
 
 

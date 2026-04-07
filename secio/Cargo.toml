@@ -11,6 +11,9 @@ edition = "2024"
 rust-version = "1.88.0"
 build = "build.rs"
 
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_os, values("wasix"))'] }
+
 [package.metadata.docs.rs]
 features = []
 all-features = false
@@ -35,12 +38,12 @@ rand = "0.8"
 openssl = "0.10.25"
 openssl-sys = "0.9"
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
+[target.'cfg(all(not(target_family = "wasm"), not(target_os = "wasix"), not(test)))'.dependencies]
 ring = "0.17"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-rand_core = { version = "0.6" }
-getrandom = { version = "0.2", features = ["js"] }
+rand_core = { version = "0.6", default-features = false }
+getrandom = { version = "0.2", default-features = false }
 sha2 = "0.10.0"
 hmac = "0.12.0"
 x25519-dalek = { version = "2" }
@@ -48,6 +51,9 @@ chacha20poly1305 = { version = "0.10", default-features = false, features = [
     "alloc",
     "rand_core",
 ] }
+
+[target.'cfg(any(target_family = "wasm", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
 
 [features]
 openssl-vendored = ["openssl/vendored"]
