@@ -11,32 +11,52 @@
 
 #[cfg(any(
     feature = "generic-timer",
-    all(target_family = "wasm", feature = "wasm-timer")
+    all(target_family = "wasm", target_os = "unknown", feature = "wasm-timer")
 ))]
 mod generic_timer;
 pub(crate) mod proxy;
-#[cfg(all(not(target_family = "wasm"), feature = "tokio-runtime"))]
+#[cfg(any(
+    all(not(target_family = "wasm"), feature = "tokio-runtime"),
+    all(target_os = "wasix", feature = "tokio-runtime"),
+    all(target_family = "wasm", not(target_os = "unknown"), feature = "tokio-runtime")
+))]
 mod tokio_runtime;
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 mod wasm_runtime;
 
 #[cfg(any(
     feature = "generic-timer",
-    all(target_family = "wasm", feature = "wasm-timer")
+    all(target_family = "wasm", target_os = "unknown", feature = "wasm-timer")
 ))]
 pub use generic_timer::*;
-#[cfg(all(not(target_family = "wasm"), feature = "tokio-runtime"))]
+#[cfg(any(
+    all(not(target_family = "wasm"), feature = "tokio-runtime"),
+    all(target_os = "wasix", feature = "tokio-runtime"),
+    all(target_family = "wasm", not(target_os = "unknown"), feature = "tokio-runtime")
+))]
 pub use tokio_runtime::*;
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub use wasm_runtime::*;
 
-#[cfg(all(not(target_family = "wasm"), feature = "tokio-runtime"))]
+#[cfg(any(
+    all(not(target_family = "wasm"), feature = "tokio-runtime"),
+    all(target_os = "wasix", feature = "tokio-runtime"),
+    all(target_family = "wasm", not(target_os = "unknown"), feature = "tokio-runtime")
+))]
 pub use tokio::io::{ReadHalf, WriteHalf, split};
 
-#[cfg(not(feature = "tokio-runtime"))]
+#[cfg(any(
+    not(target_family = "wasm"),
+    all(target_family = "wasm", not(target_os = "unknown")),
+    target_os = "wasix"
+))]
 pub use generic_split::*;
 
-#[cfg(not(feature = "tokio-runtime"))]
+#[cfg(any(
+    not(target_family = "wasm"),
+    all(target_family = "wasm", not(target_os = "unknown")),
+    target_os = "wasix"
+))]
 mod generic_split {
     use super::{CompatStream, CompatStream2};
     use futures::io::{AsyncReadExt, ReadHalf as R, WriteHalf as W};

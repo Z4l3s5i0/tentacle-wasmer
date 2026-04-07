@@ -11,7 +11,7 @@ use std::{
 };
 
 /// This module create a `DnsResolver` future task to DNS resolver
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
 pub mod dns;
 
 /// Check if the ip address is reachable.

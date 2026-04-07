@@ -44,7 +44,7 @@ pub(crate) struct ServiceConfig {
     pub session_config: SessionConfig,
     pub max_frame_length: usize,
     pub keep_buffer: bool,
-    #[cfg(all(not(target_family = "wasm"), feature = "upnp"))]
+    #[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), feature = "upnp"))]
     pub upnp: bool,
     pub max_connection_number: usize,
     pub tcp_config: TcpConfig,
@@ -64,7 +64,7 @@ impl Default for ServiceConfig {
             session_config: SessionConfig::default(),
             max_frame_length: 1024 * 1024 * 8,
             keep_buffer: false,
-            #[cfg(all(not(target_family = "wasm"), feature = "upnp"))]
+            #[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), feature = "upnp"))]
             upnp: false,
             max_connection_number: 65535,
             tcp_config: Default::default(),
@@ -202,7 +202,7 @@ pub(crate) struct TcpConfig {
 /// inbound connections. The caller is able to set socket option and explicitly
 /// bind the socket with a socket address.
 pub struct TcpSocket {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
     pub(crate) inner: socket2::Socket,
 }
 

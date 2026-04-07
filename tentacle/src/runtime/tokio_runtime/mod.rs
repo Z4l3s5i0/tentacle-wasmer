@@ -1,3 +1,4 @@
+#[cfg(all(not(target_family = "wasm"), not(target_os = "wasix")))]
 use super::proxy::{socks5, socks5_config::random_auth};
 use multiaddr::{MultiAddr, Protocol};
 pub use tokio::{
@@ -8,116 +9,121 @@ pub use tokio::{
 
 use crate::{
     service::config::{TcpSocket, TcpSocketConfig, TcpSocketTransformer, TransformerContext},
-    utils::redact_auth_from_url,
 };
-use socket2::{Domain, Protocol as SocketProtocol, Socket, Type};
-#[cfg(unix)]
-use std::os::unix::io::{FromRawFd, IntoRawFd};
-#[cfg(windows)]
-use std::os::windows::io::{FromRawSocket, IntoRawSocket};
-use std::{io, net::SocketAddr};
-use tokio::net::TcpSocket as TokioTcp;
+#[cfg(all(not(target_family = "wasm"), not(target_os = "wasix")))]
+    use crate::utils::redact_auth_from_url;
+    #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
+    use socket2::{Domain, Protocol as SocketProtocol, Socket, Type, SockAddr};
+    #[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), any(unix, target_os = "wasix")))]
+    use std::os::unix::io::{FromRawFd, IntoRawFd};
+    #[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), all(not(unix), not(target_os = "wasix"), windows)))]
+    use std::os::windows::io::{FromRawSocket, IntoRawSocket};
+    use std::{io, net::SocketAddr};
+    use tokio::net::TcpSocket as TokioTcp;
 
-#[cfg(feature = "tokio-timer")]
-pub use {
+    # [cfg(feature = "tokio-timer")]
+    pub use {
     time::{Interval, interval},
     tokio::time::{MissedTickBehavior, Sleep as Delay, Timeout, sleep as delay_for, timeout},
-};
-
-#[cfg(feature = "tokio-timer")]
-mod time {
-    use futures::Stream;
-    use std::{
-        pin::Pin,
-        task::{Context, Poll},
-        time::Duration,
-    };
-    use tokio::time::{
-        Instant, Interval as Inner, MissedTickBehavior, interval_at as inner_interval,
     };
 
-    pub struct Interval(Inner);
+    # [cfg(feature = "tokio-timer")]
+    mod time {
+        use futures::Stream;
+        use std::{
+            pin::Pin,
+            task::{Context, Poll},
+            time::Duration,
+        };
+        use tokio::time::{
+            Instant, Interval as Inner, MissedTickBehavior, interval_at as inner_interval,
+        };
 
-    impl Interval {
-        /// Same as tokio::time::interval
-        pub fn new(period: Duration) -> Self {
+        pub struct Interval(Inner);
+
+        impl Interval {
+            /// Same as tokio::time::interval
+            pub fn new(period: Duration) -> Self {
             Self::new_at(Duration::ZERO, period)
-        }
+            }
 
-        /// Same as tokio::time::interval_at
-        pub fn new_at(start_since_now: Duration, period: Duration) -> Self {
-            Self(inner_interval(Instant::now() + start_since_now, period))
-        }
+            /// Same as tokio::time::interval_at
+            pub fn new_at(start_since_now: Duration, period: Duration) -> Self {
+            Self (inner_interval(Instant::now() + start_since_now, period))
+            }
 
-        pub fn set_missed_tick_behavior(&mut self, behavior: MissedTickBehavior) {
-            self.0.set_missed_tick_behavior(behavior);
-        }
-    }
-
-    impl Stream for Interval {
-        type Item = ();
-
-        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<()>> {
-            match self.0.poll_tick(cx) {
-                Poll::Ready(_) => Poll::Ready(Some(())),
-                Poll::Pending => Poll::Pending,
+            pub fn set_missed_tick_behavior( & mut self, behavior: MissedTickBehavior) {
+                self.0.set_missed_tick_behavior(behavior);
             }
         }
 
-        fn size_hint(&self) -> (usize, Option<usize>) {
+        impl Stream for Interval {
+            type Item = ();
+
+            fn poll_next( mut self: Pin< & mut Self >, cx: & mut Context<'_ > ) -> Poll<Option<() > > {
+            match self.0.poll_tick(cx) {
+            Poll::Ready(_) => Poll::Ready(Some(())),
+            Poll::Pending => Poll::Pending,
+            }
+            }
+
+            fn size_hint( & self) -> (usize, Option<usize>) {
             (usize::MAX, None)
+            }
+        }
+
+        pub fn interval(period: Duration) -> Interval {
+            Interval::new(period)
         }
     }
 
-    pub fn interval(period: Duration) -> Interval {
-        Interval::new(period)
-    }
-}
+    pub (crate) fn listen(addr: SocketAddr, tcp_config: TcpSocketConfig) -> io::Result<TcpListener> {
+        let domain = Domain::for_address(addr);
+        let socket = Socket::new(domain, Type::STREAM, Some(SocketProtocol::TCP)) ?;
 
-pub(crate) fn listen(addr: SocketAddr, tcp_config: TcpSocketConfig) -> io::Result<TcpListener> {
-    let domain = Domain::for_address(addr);
-    let socket = Socket::new(domain, Type::STREAM, Some(SocketProtocol::TCP))?;
+        // reuse addr and reuse port's situation on each platform
+        // https://stackoverflow.com/questions/14388706/how-do-so-reuseaddr-and-so-reuseport-differ
 
-    // reuse addr and reuse port's situation on each platform
-    // https://stackoverflow.com/questions/14388706/how-do-so-reuseaddr-and-so-reuseport-differ
-
-    let socket = {
-        // On platforms with Berkeley-derived sockets, this allows to quickly
-        // rebind a socket, without needing to wait for the OS to clean up the
-        // previous one.
-        //
-        // On Windows, this allows rebinding sockets which are actively in use,
-        // which allows “socket hijacking”, so we explicitly don't set it here.
-        // https://docs.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse
-        //
         // user can disable it on socket_transformer
         #[cfg(not(windows))]
-        socket.set_reuse_address(true)?;
+        socket.set_reuse_address(true) ?;
+
         let transformer_context = TransformerContext::new_listen(addr);
-        let t = (tcp_config.socket_transformer)(TcpSocket { inner: socket }, transformer_context)?;
-        t.inner.set_nonblocking(true)?;
+        let t = (tcp_config.socket_transformer)(TcpSocket {inner: socket}, transformer_context) ?;
+
+        // `bind` twice will return error
+        //
+        // code 22 means:
+        // EINVAL The socket is already bound to an address.
+        // ref: https://man7.org/linux/man-pages/man2/bind.2.html
+        if let Err(e) = t.inner.bind(&SockAddr::from(addr)) {
+            if Some(22) != e.raw_os_error() {
+                return Err(e);
+            }
+        }
+
+        t.inner.listen(1024)?;
+        t.inner.set_nonblocking(true) ?;
+
         // safety: fd convert by socket2
         unsafe {
-            #[cfg(unix)]
-            let socket = TokioTcp::from_raw_fd(t.into_raw_fd());
-            #[cfg(windows)]
-            let socket = TokioTcp::from_raw_socket(t.into_raw_socket());
-            socket
-        }
-    };
-    // `bind` twice will return error
-    //
-    // code 22 means:
-    // EINVAL The socket is already bound to an address.
-    // ref: https://man7.org/linux/man-pages/man2/bind.2.html
-    if let Err(e) = socket.bind(addr) {
-        if Some(22) != e.raw_os_error() {
-            return Err(e);
+            #[cfg(any(unix, target_os = "wasix"))]
+            {
+                Ok(TcpListener::from_std(std::net::TcpListener::from_raw_fd(t.inner.into_raw_fd()))?)
+            }
+            #[cfg(all(not(unix), not(target_os = "wasix"), windows))]
+            {
+                Ok(TcpListener::from_std(std::net::TcpListener::from_raw_socket(t.inner.into_raw_socket()))?)
+            }
+            #[cfg(all(not(unix), not(target_os = "wasix"), not(windows)))]
+            {
+                let _ = t;
+                let _ = addr;
+                let _ = tcp_config;
+                return Err(io::Error::new(io::ErrorKind::Other, "Unsupported platform"));
+            }
         }
     }
-
-    socket.listen(1024)
-}
 
 async fn connect_direct(
     addr: SocketAddr,
@@ -126,23 +132,31 @@ async fn connect_direct(
     let domain = Domain::for_address(addr);
     let socket = Socket::new(domain, Type::STREAM, Some(SocketProtocol::TCP))?;
 
-    let socket = {
-        let transformer_context = TransformerContext::new_dial(addr);
-        let t = socket_transformer(TcpSocket { inner: socket }, transformer_context)?;
-        t.inner.set_nonblocking(true)?;
-        // safety: fd convert by socket2
-        unsafe {
-            #[cfg(unix)]
-            let socket = TokioTcp::from_raw_fd(t.into_raw_fd());
-            #[cfg(windows)]
-            let socket = TokioTcp::from_raw_socket(t.into_raw_socket());
-            socket
+    let transformer_context = TransformerContext::new_dial(addr);
+    let t = socket_transformer(TcpSocket { inner: socket }, transformer_context)?;
+    t.inner.set_nonblocking(true)?;
+
+    let tokio_socket: TokioTcp = unsafe {
+        #[cfg(any(unix, target_os = "wasix"))]
+        {
+            TokioTcp::from_raw_fd(t.inner.into_raw_fd())
+        }
+        #[cfg(all(not(unix), not(target_os = "wasix"), windows))]
+        {
+            TokioTcp::from_raw_socket(t.inner.into_raw_socket())
+        }
+        #[cfg(all(not(unix), not(target_os = "wasix"), not(windows)))]
+        {
+            let _ = t;
+            let _ = addr;
+            return Err(io::Error::new(io::ErrorKind::Other, "Unsupported platform"));
         }
     };
 
-    socket.connect(addr).await
+    tokio_socket.connect(addr).await
 }
 
+#[cfg(all(not(target_family = "wasm"), not(target_os = "wasix")))]
 async fn connect_by_proxy(
     target_addr: String,
     target_port: u16,
@@ -170,10 +184,20 @@ async fn connect_by_proxy(
             io::Error::other(
                 format!(
                     "socks5_connect to target_addr: {}, target_port: {} by proxy_server: {} failed, err: {}",
-                    target_addr, target_port, redact_auth_from_url(&proxy_server_url), err
+                    target_addr, target_port, crate::utils::redact_auth_from_url(&proxy_server_url), err
                 ),
             )
         })
+}
+
+#[cfg(any(target_family = "wasm", target_os = "wasix"))]
+async fn connect_by_proxy(
+    _target_addr: String,
+    _target_port: u16,
+    _proxy_server_url: url::Url,
+    _proxy_random_auth: bool,
+) -> io::Result<TcpStream> {
+    Err(io::Error::other("proxy not supported on this platform"))
 }
 
 pub(crate) async fn connect(
@@ -194,10 +218,10 @@ pub(crate) async fn connect(
             proxy_url.clone(),
             proxy_random_auth,
         )
-        .await
-        .map_err(|err| {
-            io::Error::other(format!("connect_by_proxy: {}, error: {}", proxy_url, err))
-        }),
+            .await
+            .map_err(|err| {
+                io::Error::other(format!("connect_by_proxy: {}, error: {}", proxy_url, err))
+            }),
         None => connect_direct(target_addr, socket_transformer).await,
     }
 }

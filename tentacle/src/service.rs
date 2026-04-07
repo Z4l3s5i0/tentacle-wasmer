@@ -12,7 +12,7 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
 use crate::service::helper::Listener;
 use crate::{
     ProtocolId, SessionId,
@@ -70,7 +70,7 @@ struct InnerService<K> {
 
     listens: HashSet<Multiaddr>,
 
-    #[cfg(all(not(target_family = "wasm"), feature = "upnp"))]
+    #[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), feature = "upnp"))]
     igd_client: Option<crate::upnp::IgdClient>,
 
     dial_protocols: HashMap<Multiaddr, TargetProtocol>,
@@ -143,7 +143,7 @@ where
         let (user_handle_sender, user_handle_receiver) =
             mpsc::channel(config.session_config.channel_size);
         let shutdown = Arc::new(AtomicBool::new(false));
-        #[cfg(all(not(target_family = "wasm"), feature = "upnp"))]
+        #[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), feature = "upnp"))]
         let igd_client = if config.upnp {
             crate::upnp::IgdClient::new()
         } else {
@@ -169,10 +169,10 @@ where
                 future_task_sender,
                 handshake_type,
                 multi_transport: {
-                    #[cfg(target_family = "wasm")]
+                    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
                     let transport = MultiTransport::new(config.timeout.timeout);
                     #[allow(clippy::let_and_return)]
-                    #[cfg(not(target_family = "wasm"))]
+                    #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
                     let transport = MultiTransport::new(
                         config.timeout,
                         config.tcp_config.clone(),
@@ -186,7 +186,7 @@ where
                 service_proto_handles: HashMap::default(),
                 session_proto_handles: HashMap::default(),
                 listens: HashSet::new(),
-                #[cfg(all(not(target_family = "wasm"), feature = "upnp"))]
+                #[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), feature = "upnp"))]
                 igd_client,
                 dial_protocols: HashMap::default(),
                 state: State::new(forever),
@@ -210,10 +210,10 @@ where
         let inner = self.inner_service.as_mut().unwrap();
         let listen_future = inner.multi_transport.clone().listen(address.clone())?;
 
-        #[cfg(target_family = "wasm")]
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         unreachable!();
 
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
         match listen_future.await {
             Ok((addr, incoming)) => {
                 let listen_address = addr.clone();
@@ -332,7 +332,7 @@ impl<K> InnerService<K>
 where
     K: KeyProvider,
 {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
     fn spawn_listener(&mut self, incoming: MultiIncoming, listen_address: Multiaddr) {
         let listener = Listener {
             inner: incoming,
@@ -359,7 +359,7 @@ where
     fn listen_inner(&mut self, address: Multiaddr) -> Result<()> {
         let listen_future = self.multi_transport.clone().listen(address.clone())?;
 
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
         {
             let mut sender = self.session_event_sender.clone();
             let task = async move {
@@ -878,7 +878,7 @@ where
     }
 
     /// When listen update, call here
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
     #[inline]
     async fn try_update_listens(&mut self) {
         #[cfg(feature = "upnp")]
@@ -1034,7 +1034,7 @@ where
                     )
                     .await;
             }
-            #[cfg(not(target_family = "wasm"))]
+            #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
             SessionEvent::ListenError { address, error } => {
                 let _ignore = self
                     .handle_sender
@@ -1088,7 +1088,7 @@ where
                         .await;
                 }
             }
-            #[cfg(not(target_family = "wasm"))]
+            #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
             SessionEvent::ListenStart {
                 listen_address,
                 incoming,
@@ -1317,7 +1317,7 @@ where
                 let _ignore = self.handle_sender.send_all(&mut events).await;
 
                 // clear upnp register
-                #[cfg(all(not(target_family = "wasm"), feature = "upnp"))]
+                #[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), feature = "upnp"))]
                 if let Some(client) = self.igd_client.as_mut() {
                     client.clear()
                 };
@@ -1368,7 +1368,7 @@ where
             }
 
             poll_fn(crate::runtime::poll_proceed).await;
-            #[cfg(not(target_family = "wasm"))]
+            #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
             self.try_update_listens().await;
             tokio::select! {
                 Some(event) = self.session_event_receiver.next() => {

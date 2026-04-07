@@ -813,7 +813,7 @@ impl Stream for Session {
     }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown")))))]
 mod tests {
     use super::split_spawn_framed;
     use bytes::{Bytes, BytesMut};

@@ -21,6 +21,10 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
+use rand::Rng;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 static MEMORY_HUB: LazyLock<Mutex<HashMap<NonZeroU64, Sender<MemorySocket>>>> =
     LazyLock::new(|| Mutex::new(HashMap::default()));
@@ -49,7 +53,16 @@ async fn bind(address: Multiaddr) -> Result<(Multiaddr, MemoryListener)> {
                     a
                 }
                 None => loop {
-                    let port = match NonZeroU64::new(rand::random()) {
+                    #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
+                    let port_val = rand::thread_rng().r#gen();
+                    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+                    let port_val = {
+                        let mut s = DefaultHasher::new();
+                        address.hash(&mut s);
+                        s.finish()
+                    };
+
+                    let port = match NonZeroU64::new(port_val) {
                         Some(p) => p,
                         None => continue,
                     };

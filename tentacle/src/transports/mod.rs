@@ -11,26 +11,26 @@ use std::{
     task::{Context, Poll},
 };
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 mod browser;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
 mod memory;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
 mod onion;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
 pub(crate) mod proxy_protocol;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
 mod tcp;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
 pub(crate) mod tcp_base_listen;
-#[cfg(all(feature = "tls", not(target_family = "wasm")))]
+#[cfg(all(feature = "tls", any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown")))))]
 mod tls;
-#[cfg(all(feature = "ws", not(target_family = "wasm")))]
+#[cfg(all(feature = "ws", any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown")))))]
 mod ws;
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub use on_browser::*;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
 pub use os::*;
 
 type Result<T> = std::result::Result<T, TransportErrorKind>;
@@ -89,7 +89,7 @@ pub(crate) fn parse_tls_domain_name(addr: &Multiaddr) -> Option<String> {
     })
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
 mod os {
     use super::*;
 
@@ -492,7 +492,7 @@ mod os {
     }
 }
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 mod on_browser {
     use super::*;
 

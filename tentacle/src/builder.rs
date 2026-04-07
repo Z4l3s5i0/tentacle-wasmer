@@ -169,7 +169,7 @@ where
     ///         "10.0.0.1".parse().unwrap(),
     ///     ]);
     /// ```
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
     pub fn trusted_proxies(mut self, proxies: Vec<std::net::IpAddr>) -> Self {
         self.config.trusted_proxies = proxies;
         self
@@ -185,7 +185,7 @@ where
     /// then an attempt is made to register the local listener port into the mapping so that it can
     /// receive the access request of the external network, and if the external ip of the route is not the public network,
     /// Then do nothing
-    #[cfg(all(not(target_family = "wasm"), feature = "upnp"))]
+    #[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), feature = "upnp"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "upnp")))]
     pub fn upnp(mut self, enable: bool) -> Self {
         self.config.upnp = enable;
@@ -254,7 +254,7 @@ where
     /// User use `listen(2)` or `connect(2)` on this closure will cause abnormal behavior
     ///
     /// Proxy and onion config will be ignored this config
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
     pub fn tcp_config<F>(mut self, f: F) -> Self
     where
         F: Fn(TcpSocket, TransformerContext) -> Result<TcpSocket, std::io::Error>
@@ -279,7 +279,7 @@ where
     ///
     /// Example: socks5://127.0.0.1:9050
     /// Example: socks5://username:password@127.0.0.1:9050
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
     pub fn tcp_proxy_config(mut self, proxy_url: &str) -> Self {
         let proxy_url: url::Url = Self::must_parse_proxy_url(proxy_url);
         self.config.tcp_config.tcp.proxy_url = Some(proxy_url);
@@ -289,7 +289,7 @@ where
     /// Onion config for tcp
     ///
     /// Example: socks5://127.0.0.1:9050
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
     pub fn tcp_onion_config(mut self, onion_url: &str) -> Self {
         let onion_url: url::Url = Self::must_parse_proxy_url(onion_url);
         self.config.tcp_config.tcp.onion_url = Some(onion_url);
@@ -297,7 +297,7 @@ where
     }
 
     /// Onion config for proxy, use random username/password is set for proxy connection
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
     pub fn tcp_proxy_random_auth(mut self, proxy_random_auth: bool) -> Self {
         self.config.tcp_config.tcp.proxy_random_auth = proxy_random_auth;
         self

@@ -148,7 +148,7 @@ mod channel;
 #[allow(missing_docs)]
 pub mod runtime;
 
-#[cfg(all(not(target_family = "wasm"), feature = "upnp"))]
+#[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), feature = "upnp"))]
 pub(crate) mod upnp;
 
 use std::{fmt, ops::AddAssign};

@@ -154,7 +154,7 @@ where
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
 pub struct Listener<K> {
     pub(crate) inner: MultiIncoming,
     pub(crate) handshake_type: HandshakeType<K>,
@@ -173,7 +173,7 @@ pub struct Listener<K> {
     >,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
 impl<K> Listener<K>
 where
     K: KeyProvider,
@@ -412,10 +412,10 @@ where
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
 impl<K> Unpin for Listener<K> {}
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
 impl<K> Stream for Listener<K>
 where
     K: KeyProvider,
