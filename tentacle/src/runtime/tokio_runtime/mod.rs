@@ -14,9 +14,9 @@ use crate::{
     use crate::utils::redact_auth_from_url;
     #[cfg(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))))]
     use socket2::{Domain, Protocol as SocketProtocol, Socket, Type, SockAddr};
-    #[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), any(unix, target_os = "wasix")))]
+    #[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), any(unix, target_os = "wasix", target_os = "wasi")))]
     use std::os::unix::io::{FromRawFd, IntoRawFd};
-    #[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), all(not(unix), not(target_os = "wasix"), windows)))]
+    #[cfg(all(any(not(target_family = "wasm"), target_os = "wasix", all(target_family = "wasm", not(target_os = "unknown"))), all(not(unix), not(target_os = "wasix"), not(target_os = "wasi"), windows)))]
     use std::os::windows::io::{FromRawSocket, IntoRawSocket};
     use std::{io, net::SocketAddr};
     use tokio::net::TcpSocket as TokioTcp;
@@ -78,44 +78,72 @@ use crate::{
     }
 
     pub (crate) fn listen(addr: SocketAddr, tcp_config: TcpSocketConfig) -> io::Result<TcpListener> {
-        let domain = Domain::for_address(addr);
-        let socket = Socket::new(domain, Type::STREAM, Some(SocketProtocol::TCP)) ?;
+        println!("[tentacle::runtime] listen on addr: {:?}", addr);
+        
+        let std_listener = std::net::TcpListener::bind(addr)?;
+        println!("[tentacle::runtime] std::net::TcpListener bound.");
+
+        // On WASIX, we might not have unix or windows set, but target_os = "wasix" should be true.
+        // However, let's use a more robust way to define the socket.
+        #[cfg(any(unix, target_os = "wasix", target_os = "wasi"))]
+        let socket = unsafe {
+            println!("[tentacle::runtime] socket created from std_listener (unix/wasix/wasi).");
+            Socket::from_raw_fd(std_listener.into_raw_fd())
+        };
+        #[cfg(all(not(unix), not(target_os = "wasix"), not(target_os = "wasi"), windows))]
+        let socket = unsafe {
+            use std::os::windows::io::IntoRawSocket;
+            println!("[tentacle::runtime] socket created from std_listener (windows).");
+            Socket::from_raw_socket(std_listener.into_raw_socket())
+        };
+        #[cfg(all(not(unix), not(target_os = "wasix"), not(target_os = "wasi"), not(windows)))]
+        let socket: Socket = {
+             println!("[tentacle::runtime] Unsupported platform in listen!");
+             return Err(io::Error::new(io::ErrorKind::Other, "Unsupported platform"));
+        };
 
         // reuse addr and reuse port's situation on each platform
         // https://stackoverflow.com/questions/14388706/how-do-so-reuseaddr-and-so-reuseport-differ
 
         // user can disable it on socket_transformer
-        #[cfg(not(windows))]
-        socket.set_reuse_address(true) ?;
-
-        let transformer_context = TransformerContext::new_listen(addr);
-        let t = (tcp_config.socket_transformer)(TcpSocket {inner: socket}, transformer_context) ?;
-
-        // `bind` twice will return error
-        //
-        // code 22 means:
-        // EINVAL The socket is already bound to an address.
-        // ref: https://man7.org/linux/man-pages/man2/bind.2.html
-        if let Err(e) = t.inner.bind(&SockAddr::from(addr)) {
-            if Some(22) != e.raw_os_error() {
-                return Err(e);
-            }
+        #[cfg(all(unix, not(target_os = "wasix")))]
+        {
+            println!("[tentacle::runtime] setting reuse_address...");
+            socket.set_reuse_address(true) ?;
         }
 
-        t.inner.listen(1024)?;
-        t.inner.set_nonblocking(true) ?;
+        let transformer_context = TransformerContext::new_listen(addr);
+        println!("[tentacle::runtime] calling socket_transformer...");
+        let t = (tcp_config.socket_transformer)(TcpSocket {inner: socket}, transformer_context) ?;
 
+        println!("[tentacle::runtime] setting non-blocking...");
+        t.inner.set_nonblocking(true) ?;
+        println!("[tentacle::runtime] socket set non-blocking.");
+
+        // `bind` was already called via std::net::TcpListener::bind
+        // On WASI/WASIX, std::net::TcpListener::bind already puts the socket in listening state.
+        // Calling listen() again might return "Not supported".
+        if !cfg!(any(target_os = "wasix", target_os = "wasi")) {
+            println!("[tentacle::runtime] listening on socket (backlog=1024)...");
+            t.inner.listen(1024)?;
+            println!("[tentacle::runtime] socket listening.");
+        } else {
+            println!("[tentacle::runtime] skipping redundant listen() on wasix/wasi.");
+        }
+        
         // safety: fd convert by socket2
         unsafe {
-            #[cfg(any(unix, target_os = "wasix"))]
+            #[cfg(any(unix, target_os = "wasix", target_os = "wasi"))]
             {
+                println!("[tentacle::runtime] converting to tokio TcpListener (wasix/wasi/unix)...");
                 Ok(TcpListener::from_std(std::net::TcpListener::from_raw_fd(t.inner.into_raw_fd()))?)
             }
-            #[cfg(all(not(unix), not(target_os = "wasix"), windows))]
+            #[cfg(all(not(unix), not(target_os = "wasix"), not(target_os = "wasi"), windows))]
             {
+                println!("[tentacle::runtime] converting to tokio TcpListener (windows)...");
                 Ok(TcpListener::from_std(std::net::TcpListener::from_raw_socket(t.inner.into_raw_socket()))?)
             }
-            #[cfg(all(not(unix), not(target_os = "wasix"), not(windows)))]
+            #[cfg(all(not(unix), not(target_os = "wasix"), not(target_os = "wasi"), not(windows)))]
             {
                 let _ = t;
                 let _ = addr;
@@ -129,31 +157,47 @@ async fn connect_direct(
     addr: SocketAddr,
     socket_transformer: TcpSocketTransformer,
 ) -> io::Result<TcpStream> {
-    let domain = Domain::for_address(addr);
-    let socket = Socket::new(domain, Type::STREAM, Some(SocketProtocol::TCP))?;
+    let socket: Socket = if cfg!(any(unix, target_os = "wasix", target_os = "wasi")) {
+        let std_stream = std::net::TcpStream::connect(addr)?;
+        #[cfg(any(unix, target_os = "wasix", target_os = "wasi"))]
+        unsafe {
+            Socket::from_raw_fd(std_stream.into_raw_fd())
+        }
+        #[cfg(all(not(unix), not(target_os = "wasix"), not(target_os = "wasi")))]
+        {
+            unreachable!("This code should only run on unix/wasix/wasi");
+        }
+    } else if cfg!(windows) {
+        let domain = Domain::for_address(addr);
+        Socket::new(domain, Type::STREAM, Some(SocketProtocol::TCP))?
+    } else {
+        return Err(io::Error::new(io::ErrorKind::Other, "Unsupported platform"));
+    };
 
     let transformer_context = TransformerContext::new_dial(addr);
     let t = socket_transformer(TcpSocket { inner: socket }, transformer_context)?;
     t.inner.set_nonblocking(true)?;
 
-    let tokio_socket: TokioTcp = unsafe {
-        #[cfg(any(unix, target_os = "wasix"))]
-        {
-            TokioTcp::from_raw_fd(t.inner.into_raw_fd())
+    #[cfg(any(unix, target_os = "wasix", target_os = "wasi"))]
+    unsafe {
+        let tokio_socket = TokioTcp::from_raw_fd(t.inner.into_raw_fd());
+        if cfg!(any(target_os = "wasix", target_os = "wasi")) {
+            Ok(TcpStream::from_std(std::net::TcpStream::from_raw_fd(tokio_socket.into_raw_fd()))?)
+        } else {
+            tokio_socket.connect(addr).await
         }
-        #[cfg(all(not(unix), not(target_os = "wasix"), windows))]
-        {
-            TokioTcp::from_raw_socket(t.inner.into_raw_socket())
-        }
-        #[cfg(all(not(unix), not(target_os = "wasix"), not(windows)))]
-        {
-            let _ = t;
-            let _ = addr;
-            return Err(io::Error::new(io::ErrorKind::Other, "Unsupported platform"));
-        }
-    };
-
-    tokio_socket.connect(addr).await
+    }
+    #[cfg(all(not(unix), not(target_os = "wasix"), not(target_os = "wasi"), windows))]
+    unsafe {
+        let tokio_socket = TokioTcp::from_raw_socket(t.inner.into_raw_socket());
+        tokio_socket.connect(addr).await
+    }
+    #[cfg(all(not(unix), not(target_os = "wasix"), not(target_os = "wasi"), not(windows)))]
+    {
+        let _ = t;
+        let _ = addr;
+        Err(io::Error::new(io::ErrorKind::Other, "Unsupported platform"))
+    }
 }
 
 #[cfg(all(not(target_family = "wasm"), not(target_os = "wasix")))]
